@@ -1,0 +1,364 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PatchTool PWA v1.2</title>
+<style>
+:root{--bg:#111827;--panel:#1f2937;--panel2:#243244;--text:#f9fafb;--muted:#cbd5e1;--accent:#7c5eff;--border:#475569;--input:#020617}
+*{box-sizing:border-box}
+body{margin:0;font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:var(--bg);color:var(--text)}
+header{padding:14px 18px;border-bottom:1px solid var(--border);background:#0f172a;position:sticky;top:0;z-index:10}
+header h1{margin:0;font-size:20px}
+header p{margin:6px 0 0;color:var(--muted);font-size:13px;line-height:1.45}
+main{padding:14px;display:grid;grid-template-columns:1fr 1fr;gap:14px}
+@media(max-width:900px){main{grid-template-columns:1fr;padding:10px;gap:10px}textarea{min-height:220px;font-size:12px}button{flex:1 1 auto;min-height:42px}}
+section{background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:12px;min-width:0}
+h2{margin:0 0 8px;font-size:16px}
+.hint{color:var(--muted);font-size:12px;margin:0 0 8px;line-height:1.45}
+textarea{width:100%;min-height:280px;resize:vertical;border-radius:10px;border:1px solid var(--border);background:var(--input);color:var(--text);padding:10px;font-family:Consolas,Menlo,Monaco,"Courier New",monospace;font-size:13px;line-height:1.45;outline:none;white-space:pre}
+textarea:focus{border-color:var(--accent);box-shadow:0 0 0 2px rgba(124,94,255,.25)}
+.buttons{display:flex;flex-wrap:wrap;gap:8px;margin:10px 0 0}
+button{border:none;border-radius:10px;padding:9px 12px;background:var(--accent);color:white;font-weight:700;cursor:pointer;font-size:13px}
+button.secondary{background:#475569}
+button.danger{background:#7f1d1d}
+button.ok{background:#166534}
+button.warn{background:#92400e}
+button:active{transform:translateY(1px)}
+#verifyBox{min-height:150px;background:var(--input);border:1px solid var(--border);border-radius:10px;padding:10px;font-family:Consolas,Menlo,Monaco,"Courier New",monospace;font-size:13px;white-space:pre-wrap;color:var(--muted);line-height:1.45}
+.msg-ok{color:#86efac}.msg-warn{color:#fcd34d}.msg-ng{color:#fca5a5}.msg-title{font-weight:800;font-size:15px;margin-bottom:6px}
+.statusbar{display:flex;flex-wrap:wrap;gap:10px;color:var(--muted);font-size:12px;margin-top:8px}
+.pill{padding:3px 8px;border-radius:999px;background:var(--panel2);border:1px solid var(--border)}
+</style>
+
+<link rel="manifest" href="./manifest.json">
+<meta name="theme-color" content="#7c5eff">
+<link rel="apple-touch-icon" href="./icons/icon-192.png">
+</head>
+<body>
+<header>
+<h1>PatchTool PWA v1.2</h1>
+<p>元コードにパッチを適用する単体HTMLツール。SEARCH/REPLACE、INSERT_AFTER、INSERT_BEFORE、APPEND_ENDに対応。</p>
+</header>
+
+<main>
+<section>
+<h2>1. 元コード</h2>
+<p class="hint">修正前のJavaScriptやHTMLをここに貼ります。</p>
+<textarea id="source" spellcheck="false" placeholder="ここに元コードを貼る"></textarea>
+<div class="buttons">
+<button class="secondary" onclick="loadSourceFromFile()">ファイル読込</button>
+<button class="secondary" onclick="copyNumberedSource()">行番号付きコピー</button>
+<button class="danger" onclick="clearSource()">元コードクリア</button>
+<button class="danger" onclick="clearAll()">全クリア</button>
+<input id="fileInput" type="file" style="display:none" accept=".js,.html,.txt,.css,.json,.user.js">
+</div>
+<div class="statusbar">
+<span class="pill" id="sourceLines">行数: 0</span>
+<span class="pill" id="sourceChars">文字数: 0</span>
+</div>
+</section>
+
+<section>
+<h2>2. パッチ</h2>
+<p class="hint">GPTから受け取ったパッチを貼ります。複数パッチを連続で書けます。</p>
+<textarea id="patch" spellcheck="false" placeholder="ここにパッチを貼る"></textarea>
+<div class="buttons">
+<button class="secondary" onclick="pastePatch()">ペースト</button>
+<button class="warn" onclick="verifyPatch()">検証</button>
+<button class="danger" onclick="clearPatch()">パッチクリア</button>
+</div>
+</section>
+
+<section>
+<h2>3. 検証結果</h2>
+<p class="hint">一致件数と適用可否を確認します。OKなら適用します。</p>
+<div id="verifyBox"></div>
+<div class="buttons">
+<button class="ok" onclick="applyPatch()">適用</button>
+<button class="danger" onclick="clearVerify()">検証結果クリア</button>
+</div>
+</section>
+
+<section>
+<h2>4. 結果コード</h2>
+<p class="hint">適用後の完成コード。これをTampermonkeyへ貼ります。</p>
+<textarea id="result" spellcheck="false" placeholder="ここに結果が出ます"></textarea>
+<div class="buttons">
+<button class="secondary" onclick="copyResult()">結果コードコピー</button>
+</div>
+<div class="statusbar">
+<span class="pill" id="resultLines">行数: 0</span>
+<span class="pill" id="resultChars">文字数: 0</span>
+</div>
+</section>
+</main>
+
+<script>
+(function(){
+'use strict';
+
+const sourceEl=document.getElementById('source');
+const patchEl=document.getElementById('patch');
+const resultEl=document.getElementById('result');
+const verifyBoxEl=document.getElementById('verifyBox');
+const fileInput=document.getElementById('fileInput');
+const sourceLinesEl=document.getElementById('sourceLines');
+const sourceCharsEl=document.getElementById('sourceChars');
+const resultLinesEl=document.getElementById('resultLines');
+const resultCharsEl=document.getElementById('resultChars');
+
+function countLines(text){if(!text)return 0;return text.split(/\r\n|\r|\n/).length}
+function updateStats(){
+ sourceLinesEl.textContent='行数: '+countLines(sourceEl.value);
+ sourceCharsEl.textContent='文字数: '+sourceEl.value.length;
+ resultLinesEl.textContent='行数: '+countLines(resultEl.value);
+ resultCharsEl.textContent='文字数: '+resultEl.value.length;
+}
+function normalizeNewlines(text){return String(text||'').replace(/\r\n/g,'\n').replace(/\r/g,'\n')}
+function escapeHtml(text){return String(text).replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;')}
+
+function setVerify(lines,state){
+ if(!Array.isArray(lines))lines=[String(lines)];
+ let titleClass='';
+ if(state==='ok')titleClass='msg-ok';
+ if(state==='ng')titleClass='msg-ng';
+ if(state==='warn')titleClass='msg-warn';
+ verifyBoxEl.innerHTML=lines.map((line,index)=>{
+  let cls='';
+  if(index===0)cls='msg-title '+titleClass;
+  else if(line.startsWith('OK'))cls='msg-ok';
+  else if(line.startsWith('NG'))cls='msg-ng';
+  else if(line.startsWith('WARN'))cls='msg-warn';
+  return '<div class="'+cls+'">'+escapeHtml(line)+'</div>';
+ }).join('');
+}
+
+function countOccurrences(text,needle){
+ if(!needle)return 0;
+ let count=0,pos=0;
+ while(true){
+  const idx=text.indexOf(needle,pos);
+  if(idx===-1)break;
+  count++;
+  pos=idx+needle.length;
+ }
+ return count;
+}
+
+function parsePatch(patchText){
+ const text=normalizeNewlines(patchText);
+ const blocks=[];
+ let pos=0;
+ while(pos<text.length){
+  const nextMarker=text.indexOf('<<<',pos);
+  if(nextMarker===-1)break;
+
+  if(text.startsWith('<<<SEARCH',nextMarker)){
+   const searchStart=text.indexOf('\n',nextMarker);
+   const searchEnd=text.indexOf('\n>>>',searchStart+1);
+   if(searchStart===-1||searchEnd===-1)throw new Error('SEARCHブロックの閉じ >>> が見つかりません。');
+   const searchBody=text.slice(searchStart+1,searchEnd);
+   const afterSearch=searchEnd+4;
+   const replaceMarker=text.indexOf('<<<REPLACE',afterSearch);
+   if(replaceMarker===-1)throw new Error('SEARCHの後にREPLACEが見つかりません。');
+   const replaceStart=text.indexOf('\n',replaceMarker);
+   const replaceEnd=text.indexOf('\n>>>',replaceStart+1);
+   if(replaceStart===-1||replaceEnd===-1)throw new Error('REPLACEブロックの閉じ >>> が見つかりません。');
+   const replaceBody=text.slice(replaceStart+1,replaceEnd);
+   blocks.push({type:'REPLACE',search:searchBody,replace:replaceBody});
+   pos=replaceEnd+4;
+   continue;
+  }
+
+  if(text.startsWith('<<<INSERT_AFTER',nextMarker)||text.startsWith('<<<INSERT_BEFORE',nextMarker)){
+   const type=text.startsWith('<<<INSERT_AFTER',nextMarker)?'INSERT_AFTER':'INSERT_BEFORE';
+   const markerStart=text.indexOf('\n',nextMarker);
+   const markerEnd=text.indexOf('\n>>>',markerStart+1);
+   if(markerStart===-1||markerEnd===-1)throw new Error(type+' の目印ブロックの閉じ >>> が見つかりません。');
+   const markerBody=text.slice(markerStart+1,markerEnd);
+   const contentStart=markerEnd+4;
+   const next=text.indexOf('<<<',contentStart);
+   const content=(next===-1?text.slice(contentStart):text.slice(contentStart,next)).replace(/^\n/,'').replace(/\n$/,'');
+   blocks.push({type,search:markerBody,insert:content});
+   pos=next===-1?text.length:next;
+   continue;
+  }
+
+  if(text.startsWith('<<<APPEND_END',nextMarker)){
+   const bodyStart=text.indexOf('\n',nextMarker);
+   const bodyEnd=text.indexOf('\n>>>',bodyStart+1);
+   if(bodyStart===-1||bodyEnd===-1)throw new Error('APPEND_ENDブロックの閉じ >>> が見つかりません。');
+   const body=text.slice(bodyStart+1,bodyEnd);
+   blocks.push({type:'APPEND_END',insert:body});
+   pos=bodyEnd+4;
+   continue;
+  }
+
+  throw new Error('未知のパッチ形式です。位置: '+nextMarker);
+ }
+ if(blocks.length===0)throw new Error('有効なパッチが見つかりません。');
+ return blocks;
+}
+
+function verifyBlocks(source,blocks){
+ const messages=[];
+ let ok=true;
+ blocks.forEach((block,i)=>{
+  const n=i+1;
+  if(block.type==='APPEND_END'){
+   messages.push('OK PATCH '+n+' APPEND_END: 末尾追加');
+   return;
+  }
+  const matches=countOccurrences(source,block.search);
+  if(matches===1){
+   messages.push('OK PATCH '+n+' '+block.type+': 一致 1件');
+  }else if(matches===0){
+   messages.push('NG PATCH '+n+' '+block.type+': 一致 0件。適用不可');
+   ok=false;
+  }else{
+   messages.push('NG PATCH '+n+' '+block.type+': 一致 '+matches+'件。対象が複数あるため適用不可');
+   ok=false;
+  }
+ });
+ return {ok,messages};
+}
+
+function applyBlocks(source,blocks){
+ let output=source;
+ const messages=[];
+ blocks.forEach((block,i)=>{
+  const n=i+1;
+  if(block.type==='REPLACE'){
+   output=output.replace(block.search,block.replace);
+   messages.push('OK PATCH '+n+': REPLACE適用');
+   return;
+  }
+  if(block.type==='INSERT_AFTER'){
+   output=output.replace(block.search,block.search+'\n'+block.insert);
+   messages.push('OK PATCH '+n+': INSERT_AFTER適用');
+   return;
+  }
+  if(block.type==='INSERT_BEFORE'){
+   output=output.replace(block.search,block.insert+'\n'+block.search);
+   messages.push('OK PATCH '+n+': INSERT_BEFORE適用');
+   return;
+  }
+  if(block.type==='APPEND_END'){
+   output=output.replace(/\s*$/,'\n\n'+block.insert+'\n');
+   messages.push('OK PATCH '+n+': APPEND_END適用');
+   return;
+  }
+ });
+ return {output,messages};
+}
+
+window.verifyPatch=function(){
+ try{
+  const source=normalizeNewlines(sourceEl.value);
+  const blocks=parsePatch(patchEl.value);
+  const result=verifyBlocks(source,blocks);
+  if(result.ok){
+   setVerify(['検証OK','パッチ数: '+blocks.length,...result.messages],'ok');
+  }else{
+   setVerify(['検証NG','パッチ数: '+blocks.length,...result.messages],'ng');
+  }
+ }catch(e){
+  setVerify(['検証NG',e.message],'ng');
+ }
+};
+
+window.applyPatch=function(){
+ try{
+  const source=normalizeNewlines(sourceEl.value);
+  const blocks=parsePatch(patchEl.value);
+  const verified=verifyBlocks(source,blocks);
+  if(!verified.ok){
+   setVerify(['適用失敗',...verified.messages],'ng');
+   return;
+  }
+  const applied=applyBlocks(source,blocks);
+  resultEl.value=applied.output;
+  updateStats();
+  setVerify(['適用成功','パッチ数: '+blocks.length,...verified.messages,...applied.messages,'結果コード生成完了'],'ok');
+ }catch(e){
+  setVerify(['適用失敗',e.message],'ng');
+ }
+};
+
+window.copyResult=async function(){await copyText(resultEl.value,'結果コードコピー完了','ok')};
+window.copyNumberedSource=async function(){
+ const lines=normalizeNewlines(sourceEl.value).split('\n');
+ const width=String(lines.length).length;
+ const numbered=lines.map((line,i)=>String(i+1).padStart(width,' ')+': '+line).join('\n');
+ await copyText(numbered,'行番号付きコピー完了','ok');
+};
+
+async function copyText(text,msg,state){
+ try{
+  await navigator.clipboard.writeText(text);
+  setVerify(msg,state||'ok');
+ }catch(e){
+  const temp=document.createElement('textarea');
+  temp.value=text;
+  document.body.appendChild(temp);
+  temp.select();
+  document.execCommand('copy');
+  temp.remove();
+  setVerify(msg,state||'ok');
+ }
+}
+
+window.pastePatch=async function(){
+ try{
+  const text=await navigator.clipboard.readText();
+  patchEl.value=text;
+  setVerify('パッチ貼付完了','ok');
+ }catch(e){
+  setVerify(['検証NG','クリップボードから読み取れませんでした。','ブラウザの権限、またはローカルHTML実行状態を確認してください。'],'ng');
+ }
+};
+
+window.loadSourceFromFile=function(){fileInput.click()};
+fileInput.addEventListener('change',()=>{
+ const file=fileInput.files&&fileInput.files[0];
+ if(!file)return;
+ const reader=new FileReader();
+ reader.onload=()=>{
+  sourceEl.value=reader.result||'';
+  updateStats();
+  setVerify('ファイル読込完了: '+file.name,'ok');
+ };
+ reader.onerror=()=>setVerify('ファイル読込失敗','ng');
+ reader.readAsText(file);
+});
+
+window.clearSource=function(){sourceEl.value='';updateStats();setVerify('元コードクリア完了','ok')};
+window.clearPatch=function(){patchEl.value='';setVerify('パッチクリア完了','ok')};
+window.clearVerify=function(){verifyBoxEl.textContent=''};
+window.clearAll=function(){
+ if(!confirm('全てクリアしますか？'))return;
+ sourceEl.value='';
+ patchEl.value='';
+ resultEl.value='';
+ verifyBoxEl.textContent='';
+ updateStats();
+};
+
+sourceEl.addEventListener('input',updateStats);
+resultEl.addEventListener('input',updateStats);
+updateStats();
+})();
+</script>
+
+<script>
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', function(){
+    navigator.serviceWorker.register('./service-worker.js').catch(function(err){
+      console.log('ServiceWorker registration failed:', err);
+    });
+  });
+}
+</script>
+</body>
+</html>
