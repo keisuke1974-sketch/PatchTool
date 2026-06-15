@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>PatchTool PWA v1.2</title>
+<title>PatchTool PWA v2.0</title>
 <style>
 :root{--bg:#111827;--panel:#1f2937;--panel2:#243244;--text:#f9fafb;--muted:#cbd5e1;--accent:#7c5eff;--border:#475569;--input:#020617}
 *{box-sizing:border-box}
@@ -37,14 +37,14 @@ button:active{transform:translateY(1px)}
 </head>
 <body>
 <header>
-<h1>PatchTool PWA v1.2</h1>
-<p>元コードにパッチを適用する単体HTMLツール。SEARCH/REPLACE、INSERT_AFTER、INSERT_BEFORE、APPEND_ENDに対応。</p>
+<h1>PatchTool PWA v2.0</h1>
+<p>元コードにパッチを適用する単体HTMLツール。行番号指定パッチ REPLACE_LINES / INSERT_BEFORE / INSERT_AFTER / DELETE_LINES に対応。旧SEARCH/REPLACE形式も使用可能。</p>
 </header>
 
 <main>
 <section>
 <h2>1. 元コード</h2>
-<p class="hint">修正前のJavaScriptやHTMLをここに貼ります。</p>
+<p class="hint">修正前のJavaScriptやHTMLをここに貼ります。GPTへ渡す前に「行番号付きコピー」を使います。</p>
 <textarea id="source" spellcheck="false" placeholder="ここに元コードを貼る"></textarea>
 <div class="buttons">
 <button class="secondary" onclick="loadSourceFromFile()">ファイル読込</button>
@@ -61,8 +61,14 @@ button:active{transform:translateY(1px)}
 
 <section>
 <h2>2. パッチ</h2>
-<p class="hint">GPTから受け取ったパッチを貼ります。複数パッチを連続で書けます。</p>
-<textarea id="patch" spellcheck="false" placeholder="ここにパッチを貼る"></textarea>
+<p class="hint">GPTから受け取った行番号指定パッチを貼ります。複数パッチを連続で書けます。</p>
+<textarea id="patch" spellcheck="false" placeholder="REPLACE_LINES 80 114
+新しいコード
+END
+
+INSERT_AFTER 120
+追加コード
+END"></textarea>
 <div class="buttons">
 <button class="secondary" onclick="pastePatch()">ペースト</button>
 <button class="warn" onclick="verifyPatch()">検証</button>
@@ -72,7 +78,7 @@ button:active{transform:translateY(1px)}
 
 <section>
 <h2>3. 検証結果</h2>
-<p class="hint">一致件数と適用可否を確認します。OKなら適用します。</p>
+<p class="hint">行番号範囲と適用可否を確認します。OKなら適用します。</p>
 <div id="verifyBox"></div>
 <div class="buttons">
 <button class="ok" onclick="applyPatch()">適用</button>
@@ -82,7 +88,7 @@ button:active{transform:translateY(1px)}
 
 <section>
 <h2>4. 結果コード</h2>
-<p class="hint">適用後の完成コード。これをTampermonkeyへ貼ります。</p>
+<p class="hint">適用後の完成コード。これをTampermonkeyやGitHubへ貼ります。</p>
 <textarea id="result" spellcheck="false" placeholder="ここに結果が出ます"></textarea>
 <div class="buttons">
 <button class="secondary" onclick="copyResult()">結果コードコピー</button>
@@ -108,7 +114,7 @@ const sourceCharsEl=document.getElementById('sourceChars');
 const resultLinesEl=document.getElementById('resultLines');
 const resultCharsEl=document.getElementById('resultChars');
 
-function countLines(text){if(!text)return 0;return text.split(/\r\n|\r|\n/).length}
+function countLines(text){if(!text)return 0;return normalizeNewlines(text).split('\n').length}
 function updateStats(){
  sourceLinesEl.textContent='行数: '+countLines(sourceEl.value);
  sourceCharsEl.textContent='文字数: '+sourceEl.value.length;
@@ -146,7 +152,73 @@ function countOccurrences(text,needle){
  return count;
 }
 
-function parsePatch(patchText){
+function stripTrailingSingleNewline(text){
+ return String(text||'').replace(/\n$/,'');
+}
+
+function parseLinePatch(patchText){
+ const lines=normalizeNewlines(patchText).split('\n');
+ const blocks=[];
+ let i=0;
+ while(i<lines.length){
+  const raw=lines[i];
+  const header=raw.trim();
+  if(!header||header.startsWith('#')||header.startsWith('//')){i++;continue;}
+
+  let m=header.match(/^(REPLACE_LINES|DELETE_LINES)\s+(\d+)\s+(\d+)$/);
+  if(m){
+   const type=m[1];
+   const start=Number(m[2]);
+   const end=Number(m[3]);
+   i++;
+   const body=[];
+   while(i<lines.length&&lines[i].trim()!=='END'){
+    body.push(lines[i]);
+    i++;
+   }
+   if(i>=lines.length)throw new Error(type+' '+start+' '+end+' の END が見つかりません。');
+   i++;
+   blocks.push({type,start,end,content:stripTrailingSingleNewline(body.join('\n'))});
+   continue;
+  }
+
+  m=header.match(/^(INSERT_BEFORE|INSERT_AFTER)\s+(\d+)$/);
+  if(m){
+   const type=m[1];
+   const line=Number(m[2]);
+   i++;
+   const body=[];
+   while(i<lines.length&&lines[i].trim()!=='END'){
+    body.push(lines[i]);
+    i++;
+   }
+   if(i>=lines.length)throw new Error(type+' '+line+' の END が見つかりません。');
+   i++;
+   blocks.push({type,line,content:stripTrailingSingleNewline(body.join('\n'))});
+   continue;
+  }
+
+  m=header.match(/^APPEND_END$/);
+  if(m){
+   i++;
+   const body=[];
+   while(i<lines.length&&lines[i].trim()!=='END'){
+    body.push(lines[i]);
+    i++;
+   }
+   if(i>=lines.length)throw new Error('APPEND_END の END が見つかりません。');
+   i++;
+   blocks.push({type:'APPEND_END_LINE',content:stripTrailingSingleNewline(body.join('\n'))});
+   continue;
+  }
+
+  throw new Error('未知の行番号パッチ形式です: '+header);
+ }
+ if(blocks.length===0)throw new Error('有効な行番号パッチが見つかりません。');
+ return blocks;
+}
+
+function parseLegacyPatch(patchText){
  const text=normalizeNewlines(patchText);
  const blocks=[];
  let pos=0;
@@ -195,13 +267,20 @@ function parsePatch(patchText){
    continue;
   }
 
-  throw new Error('未知のパッチ形式です。位置: '+nextMarker);
+  throw new Error('未知の旧パッチ形式です。位置: '+nextMarker);
  }
- if(blocks.length===0)throw new Error('有効なパッチが見つかりません。');
+ if(blocks.length===0)throw new Error('有効な旧パッチが見つかりません。');
  return blocks;
 }
 
-function verifyBlocks(source,blocks){
+function parsePatch(patchText){
+ const text=normalizeNewlines(patchText).trim();
+ if(!text)throw new Error('パッチが空です。');
+ if(text.includes('<<<'))return parseLegacyPatch(text);
+ return parseLinePatch(text);
+}
+
+function verifyLegacyBlocks(source,blocks){
  const messages=[];
  let ok=true;
  blocks.forEach((block,i)=>{
@@ -224,7 +303,89 @@ function verifyBlocks(source,blocks){
  return {ok,messages};
 }
 
-function applyBlocks(source,blocks){
+function rangeOfLineBlock(block){
+ if(block.type==='REPLACE_LINES'||block.type==='DELETE_LINES')return {start:block.start,end:block.end};
+ return null;
+}
+
+function verifyLineBlocks(source,blocks){
+ const lines=normalizeNewlines(source).split('\n');
+ const total=lines.length;
+ const messages=[];
+ let ok=true;
+ const ranges=[];
+
+ blocks.forEach((block,i)=>{
+  const n=i+1;
+
+  if(block.type==='REPLACE_LINES'||block.type==='DELETE_LINES'){
+   if(block.start<1||block.end<1||block.start>block.end||block.end>total){
+    messages.push('NG PATCH '+n+' '+block.type+': 行範囲が不正です。指定 '+block.start+'-'+block.end+' / 全 '+total+'行');
+    ok=false;
+    return;
+   }
+   const oldCount=block.end-block.start+1;
+   const newCount=block.type==='DELETE_LINES'?0:(block.content?block.content.split('\n').length:0);
+   messages.push('OK PATCH '+n+' '+block.type+': '+block.start+'-'+block.end+'行 / 削除 '+oldCount+'行 / 追加 '+newCount+'行');
+   ranges.push({start:block.start,end:block.end,index:n,type:block.type});
+   return;
+  }
+
+  if(block.type==='INSERT_BEFORE'){
+   if(block.line<1||block.line>total+1){
+    messages.push('NG PATCH '+n+' INSERT_BEFORE: 行番号が不正です。指定 '+block.line+' / 全 '+total+'行');
+    ok=false;
+    return;
+   }
+   const addCount=block.content?block.content.split('\n').length:0;
+   messages.push('OK PATCH '+n+' INSERT_BEFORE: '+block.line+'行目の前へ追加 / 追加 '+addCount+'行');
+   return;
+  }
+
+  if(block.type==='INSERT_AFTER'){
+   if(block.line<0||block.line>total){
+    messages.push('NG PATCH '+n+' INSERT_AFTER: 行番号が不正です。指定 '+block.line+' / 全 '+total+'行');
+    ok=false;
+    return;
+   }
+   const addCount=block.content?block.content.split('\n').length:0;
+   messages.push('OK PATCH '+n+' INSERT_AFTER: '+block.line+'行目の後へ追加 / 追加 '+addCount+'行');
+   return;
+  }
+
+  if(block.type==='APPEND_END_LINE'){
+   const addCount=block.content?block.content.split('\n').length:0;
+   messages.push('OK PATCH '+n+' APPEND_END: 末尾追加 / 追加 '+addCount+'行');
+   return;
+  }
+
+  messages.push('NG PATCH '+n+': 未対応タイプ '+block.type);
+  ok=false;
+ });
+
+ ranges.sort((a,b)=>a.start-b.start||a.end-b.end);
+ for(let i=1;i<ranges.length;i++){
+  const prev=ranges[i-1];
+  const cur=ranges[i];
+  if(cur.start<=prev.end){
+   messages.push('NG PATCH '+cur.index+': '+cur.type+' の範囲が PATCH '+prev.index+' と重複しています。');
+   ok=false;
+  }
+ }
+
+ return {ok,messages};
+}
+
+function isLineMode(blocks){
+ return blocks.some(b=>['REPLACE_LINES','DELETE_LINES','INSERT_BEFORE','INSERT_AFTER','APPEND_END_LINE'].includes(b.type));
+}
+
+function verifyBlocks(source,blocks){
+ if(isLineMode(blocks))return verifyLineBlocks(source,blocks);
+ return verifyLegacyBlocks(source,blocks);
+}
+
+function applyLegacyBlocks(source,blocks){
  let output=source;
  const messages=[];
  blocks.forEach((block,i)=>{
@@ -253,15 +414,78 @@ function applyBlocks(source,blocks){
  return {output,messages};
 }
 
+function lineBlockSortKey(block){
+ if(block.type==='REPLACE_LINES'||block.type==='DELETE_LINES')return block.start;
+ if(block.type==='INSERT_BEFORE'||block.type==='INSERT_AFTER')return block.line;
+ if(block.type==='APPEND_END_LINE')return Number.MAX_SAFE_INTEGER;
+ return 0;
+}
+
+function applyLineBlocks(source,blocks){
+ let lines=normalizeNewlines(source).split('\n');
+ const messages=[];
+ const indexed=blocks.map((block,index)=>({block,index:index+1,order:index}));
+ indexed.sort((a,b)=>{
+  const ka=lineBlockSortKey(a.block);
+  const kb=lineBlockSortKey(b.block);
+  if(ka!==kb)return kb-ka;
+  return b.order-a.order;
+ });
+
+ indexed.forEach(item=>{
+  const block=item.block;
+  const n=item.index;
+  if(block.type==='REPLACE_LINES'){
+   const insertLines=block.content?block.content.split('\n'):[];
+   lines.splice(block.start-1,block.end-block.start+1,...insertLines);
+   messages.push('OK PATCH '+n+': REPLACE_LINES適用 '+block.start+'-'+block.end+'行');
+   return;
+  }
+  if(block.type==='DELETE_LINES'){
+   lines.splice(block.start-1,block.end-block.start+1);
+   messages.push('OK PATCH '+n+': DELETE_LINES適用 '+block.start+'-'+block.end+'行');
+   return;
+  }
+  if(block.type==='INSERT_BEFORE'){
+   const insertLines=block.content?block.content.split('\n'):[];
+   lines.splice(block.line-1,0,...insertLines);
+   messages.push('OK PATCH '+n+': INSERT_BEFORE適用 '+block.line+'行');
+   return;
+  }
+  if(block.type==='INSERT_AFTER'){
+   const insertLines=block.content?block.content.split('\n'):[];
+   lines.splice(block.line,0,...insertLines);
+   messages.push('OK PATCH '+n+': INSERT_AFTER適用 '+block.line+'行');
+   return;
+  }
+  if(block.type==='APPEND_END_LINE'){
+   const insertLines=block.content?block.content.split('\n'):[];
+   if(lines.length===1&&lines[0]==='')lines=[];
+   if(lines.length>0&&lines[lines.length-1]!=='')lines.push('');
+   lines.push(...insertLines);
+   messages.push('OK PATCH '+n+': APPEND_END適用');
+   return;
+  }
+ });
+
+ return {output:lines.join('\n'),messages};
+}
+
+function applyBlocks(source,blocks){
+ if(isLineMode(blocks))return applyLineBlocks(source,blocks);
+ return applyLegacyBlocks(source,blocks);
+}
+
 window.verifyPatch=function(){
  try{
   const source=normalizeNewlines(sourceEl.value);
   const blocks=parsePatch(patchEl.value);
   const result=verifyBlocks(source,blocks);
+  const mode=isLineMode(blocks)?'行番号指定':'旧SEARCH形式';
   if(result.ok){
-   setVerify(['検証OK','パッチ数: '+blocks.length,...result.messages],'ok');
+   setVerify(['検証OK','形式: '+mode,'パッチ数: '+blocks.length,...result.messages],'ok');
   }else{
-   setVerify(['検証NG','パッチ数: '+blocks.length,...result.messages],'ng');
+   setVerify(['検証NG','形式: '+mode,'パッチ数: '+blocks.length,...result.messages],'ng');
   }
  }catch(e){
   setVerify(['検証NG',e.message],'ng');
@@ -280,7 +504,8 @@ window.applyPatch=function(){
   const applied=applyBlocks(source,blocks);
   resultEl.value=applied.output;
   updateStats();
-  setVerify(['適用成功','パッチ数: '+blocks.length,...verified.messages,...applied.messages,'結果コード生成完了'],'ok');
+  const mode=isLineMode(blocks)?'行番号指定':'旧SEARCH形式';
+  setVerify(['適用成功','形式: '+mode,'パッチ数: '+blocks.length,...verified.messages,...applied.messages,'結果コード生成完了'],'ok');
  }catch(e){
   setVerify(['適用失敗',e.message],'ng');
  }

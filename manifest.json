@@ -1,22 +1,22 @@
 {
   "name": "PatchTool PWA",
   "short_name": "PatchTool",
-  "description": "SEARCH/REPLACE形式のパッチ適用ツール",
+  "description": "行番号指定パッチとSEARCH/REPLACE形式に対応したパッチ適用ツール",
   "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",
-  "orientation": "portrait",
+  "orientation": "any",
   "background_color": "#111827",
   "theme_color": "#7c5eff",
   "icons": [
     {
-      "src": "./icon-192.png",
+      "src": "./icons/icon-192.png",
       "sizes": "192x192",
       "type": "image/png",
       "purpose": "any maskable"
     },
     {
-      "src": "./icon-512.png",
+      "src": "./icons/icon-512.png",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "any maskable"
