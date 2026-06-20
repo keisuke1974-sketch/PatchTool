@@ -1,7 +1,7 @@
 {
-  "name": "PatchTool PWA",
-  "short_name": "PatchTool",
-  "description": "行番号指定パッチとSEARCH/REPLACE形式に対応したパッチ適用ツール",
+  "name": "PatchTool PWA v5",
+  "short_name": "PatchTool v5",
+  "description": "固定ID方式でGPT用パッチを適用するPatchTool v5",
   "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",
