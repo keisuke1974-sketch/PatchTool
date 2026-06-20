@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>PatchTool PWA v4.0</title>
+<title>PatchTool PWA v4.1</title>
 <style>
 :root{--bg:#111827;--panel:#1f2937;--panel2:#243244;--text:#f9fafb;--muted:#cbd5e1;--accent:#7c5eff;--border:#475569;--input:#020617}
 *{box-sizing:border-box}
@@ -37,7 +37,7 @@ button:active{transform:translateY(1px)}
 </head>
 <body>
 <header>
-<h1>PatchTool PWA v4.0</h1>
+<h1>PatchTool PWA v4.1</h1>
 <p>元コードにパッチを適用する単体HTMLツール。行番号指定パッチ REPLACE_LINES / INSERT_BEFORE / INSERT_AFTER / DELETE_LINES に対応。旧SEARCH/REPLACE形式も使用可能。</p>
 </header>
 
@@ -529,6 +529,13 @@ window.copyGptSource=async function(){
   '',
   'このソースはPatchToolで作成した行番号付きコードです。',
   '修正時はフルソースを書き換えず、PatchTool形式のパッチだけを返してください。',
+  '',
+  '重要:',
+  '修正箇所以外は変更しないでください。',
+  '既存機能を削除しないでください。',
+  '関係ない箇所のリファクタリングをしないでください。',
+  '回答はPatchTool形式のみで返してください。',
+  '説明文やコード解説は不要です。',
   '',
   '使用可能コマンド:',
   'REPLACE_LINES 開始行 終了行',
