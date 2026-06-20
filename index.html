@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>PatchTool PWA v5.0</title>
+<title>PatchTool PWA v5.4</title>
 <style>
 :root{--bg:#111827;--panel:#1f2937;--panel2:#243244;--text:#f9fafb;--muted:#cbd5e1;--accent:#7c5eff;--border:#475569;--input:#020617}
 *{box-sizing:border-box}
@@ -38,18 +38,17 @@ button:active{transform:translateY(1px)}
 </head>
 <body>
 <header>
-<h1>PatchTool PWA v5.0</h1>
-<p>固定ID方式のGPT用パッチ適用ツール。REPLACE_ID / INSERT_BEFORE_ID / INSERT_AFTER_ID / DELETE_ID に対応。PATCH_TARGET照合で別バージョンへの誤適用を防止。</p>
+<h1>PatchTool PWA v5.4</h1>
+<p>GPT受け渡し専用の固定ID方式パッチ適用ツール。IDは内部処理に限定し、完成コードのコピー・保存を中心にした整理版。</p>
 </header>
 
 <main>
 <section>
 <h2>1. 元コード / ID付きコード</h2>
-<p class="hint">初回は通常コードを貼って「ID付与」。以後は結果コードを戻して継続できます。</p>
+<p class="hint">通常コードを貼って「GPT貼付け用コピー」を押すと、自動でIDを付与してGPT用テキストをコピーします。</p>
 <textarea id="source" spellcheck="false" placeholder="ここに元コード、またはID付きコードを貼る"></textarea>
 <div class="buttons">
 <button class="secondary" onclick="loadSourceFromFile()">ファイル読込</button>
-<button class="secondary" onclick="assignIds()">ID付与</button>
 <button class="secondary" onclick="copyGptSource()">GPT貼付け用コピー</button>
 <button class="danger" onclick="clearSource()">元コードクリア</button>
 <button class="danger" onclick="clearAll()">全クリア</button>
@@ -57,6 +56,7 @@ button:active{transform:translateY(1px)}
 </div>
 <div class="statusbar">
 <span class="pill" id="docIdView">DOC_ID: 未作成</span>
+<span class="pill" id="fileNameView">現在ファイル: 未指定</span>
 <span class="pill" id="sourceLines">行数: 0</span>
 <span class="pill" id="sourceChars">文字数: 0</span>
 <span class="pill" id="maxIdView">MAX_ID: 0</span>
@@ -93,11 +93,15 @@ END"></textarea>
 </section>
 
 <section>
-<h2>4. 結果コード</h2>
-<p class="hint">適用後のID付き完成コード。次回修正ではこれを元コード欄へ戻して使います。</p>
-<textarea id="result" spellcheck="false" placeholder="ここに結果が出ます"></textarea>
+<h2>4. 完成コード</h2>
+<p class="hint">パッチ適用後の完成コードをコピーまたはファイル保存します。内部IDは自動で除去されます。</p>
+<textarea id="result" spellcheck="false" placeholder="ここに内部作業コードが出ます。通常は完成コードコピー／保存を使います"></textarea>
+<div class="smallrow" style="margin-top:8px">
+<input id="saveFileName" placeholder="保存ファイル名は読込ファイル名を自動使用">
+<button class="secondary" onclick="saveCleanResultFile()">完成コードを保存</button>
+</div>
 <div class="buttons">
-<button class="secondary" onclick="copyResult()">結果コードコピー</button>
+<button class="secondary" onclick="copyCleanResult()">完成コードコピー</button>
 <button class="secondary" onclick="useResultAsSource()">結果を元コードへ戻す</button>
 </div>
 <div class="statusbar">
@@ -106,14 +110,6 @@ END"></textarea>
 </div>
 </section>
 
-<section>
-<h2>5. ID検索</h2>
-<p class="hint">IDを入力して、元コード内の該当行を探します。</p>
-<div class="smallrow">
-<input id="findId" placeholder="ID000001">
-<button class="secondary" onclick="findIdLine()">検索</button>
-</div>
-</section>
 </main>
 
 <script>
@@ -130,8 +126,10 @@ const sourceCharsEl=document.getElementById('sourceChars');
 const resultLinesEl=document.getElementById('resultLines');
 const resultCharsEl=document.getElementById('resultChars');
 const docIdView=document.getElementById('docIdView');
+const fileNameView=document.getElementById('fileNameView');
 const maxIdView=document.getElementById('maxIdView');
-const findIdEl=document.getElementById('findId');
+const saveFileNameEl=document.getElementById('saveFileName');
+let currentFileName='';
 
 const ID_RE=/^ID(\d{6}):\s?(.*)$/;
 const DOC_RE=/^\/\/\s*PatchTool-v5-DOC_ID:\s*(PT-[A-Za-z0-9-]+)\s*$/;
@@ -217,6 +215,7 @@ function serializeDocument(docId,parentId,maxId,items){
 function updateStats(){
  const parsed=parseDocument(sourceEl.value);
  docIdView.textContent='DOC_ID: '+(parsed.docId||'未作成');
+ fileNameView.textContent='現在ファイル: '+(currentFileName||'未指定');
  maxIdView.textContent='MAX_ID: '+parsed.maxId;
  sourceLinesEl.textContent='行数: '+countLines(sourceEl.value);
  sourceCharsEl.textContent='文字数: '+sourceEl.value.length;
@@ -224,6 +223,54 @@ function updateStats(){
  resultCharsEl.textContent='文字数: '+resultEl.value.length;
 }
 function stripOneNewline(text){return String(text||'').replace(/\n$/,'')}
+function stripIdsForCleanCode(text){
+ const doc=parseDocument(text);
+ if(!doc.hasHeader){
+  return normalizeNewlines(text);
+ }
+ return doc.items.map(item=>item.text).join('\n');
+}
+function ensureIdDocument(){
+ const current=normalizeNewlines(sourceEl.value);
+ if(!current.trim())throw new Error('元コードが空です。');
+ const parsed=parseDocument(current);
+ if(parsed.hasHeader&&parsed.invalidIdLines.length===0&&parsed.duplicateIds.length===0){
+  return parsed;
+ }
+ const sourceLines=current.split('\n');
+ const docId=nowDocId();
+ const items=sourceLines.map((line,i)=>({id:padId(i+1),text:line,lineNo:i+1}));
+ const output=serializeDocument(docId,'NONE',sourceLines.length,items);
+ sourceEl.value=output;
+ resultEl.value=output;
+ updateStats();
+ return parseDocument(output);
+}
+function safeFileName(name){
+ const text=String(name||'').trim();
+ if(!text)return 'patched-code.txt';
+ return text.replace(/[\\/:*?"<>|]/g,'_');
+}
+function setCurrentFileName(name){
+ currentFileName=safeFileName(name||'');
+ if(!currentFileName)currentFileName='';
+ saveFileNameEl.value=currentFileName||'';
+ updateStats();
+}
+function getSaveFileName(){
+ return safeFileName(saveFileNameEl.value||currentFileName||'patched-code.txt');
+}
+function downloadTextFile(filename,text){
+ const blob=new Blob([text],{type:'text/plain;charset=utf-8'});
+ const url=URL.createObjectURL(blob);
+ const a=document.createElement('a');
+ a.href=url;
+ a.download=safeFileName(filename);
+ document.body.appendChild(a);
+ a.click();
+ a.remove();
+ setTimeout(()=>URL.revokeObjectURL(url),1000);
+}
 
 window.assignIds=function(){
  const current=normalizeNewlines(sourceEl.value);
@@ -344,13 +391,19 @@ function applyBlocks(doc,patchObj){
   const idx=items.findIndex(x=>x.id===block.id);
   if(idx<0)return;
   if(block.type==='REPLACE_ID'){
-   maxId+=block.content?block.content.split('\n').length:0;
-   const newItems=contentToNewItems(block.content,maxId-(block.content?block.content.split('\n').length:0)+1);
-   if(newItems.length===1){
-    newItems[0].id=block.id;
+   const replaceLines=block.content?block.content.split('\n'):[];
+   const newItems=replaceLines.map((line,i)=>{
+    if(i===0)return {id:block.id,text:line,lineNo:0};
+    return {id:padId(maxId+i),text:line,lineNo:0};
+   });
+   if(replaceLines.length>1)maxId+=replaceLines.length-1;
+   if(newItems.length===0){
+    items.splice(idx,1);
+    messages.push('OK PATCH '+n+': REPLACE_ID空置換により削除 '+block.id);
+   }else{
+    items.splice(idx,1,...newItems);
+    messages.push('OK PATCH '+n+': REPLACE_ID適用 '+block.id+' / 元ID保持');
    }
-   items.splice(idx,1,...newItems);
-   messages.push('OK PATCH '+n+': REPLACE_ID適用 '+block.id);
    return;
   }
   if(block.type==='DELETE_ID'){
@@ -414,9 +467,11 @@ window.applyPatch=function(){
 };
 
 window.copyGptSource=async function(){
- const doc=parseDocument(sourceEl.value);
- if(!doc.hasHeader||doc.invalidIdLines.length||doc.duplicateIds.length){
-  setVerify(['GPT貼付け用コピー失敗','先にID付与してください。','ID形式ではない行や重複IDがある場合は修正が必要です。'],'ng');
+ let doc;
+ try{
+  doc=ensureIdDocument();
+ }catch(e){
+  setVerify(['GPT貼付け用コピー失敗',e.message],'ng');
   return;
  }
  const text=[
@@ -452,10 +507,27 @@ window.copyGptSource=async function(){
   '',
   '----- ソース終了 -----'
  ].join('\n');
- await copyText(text,'GPT貼付け用コピー完了','ok');
+ await copyText(text,'GPT貼付け用コピー完了（必要に応じてID自動付与済み）','ok');
 };
 
-window.copyResult=async function(){await copyText(resultEl.value,'結果コードコピー完了','ok')};
+window.copyCleanResult=async function(){
+ if(!resultEl.value.trim()){
+  setVerify('結果コードが空です。','ng');
+  return;
+ }
+ const clean=stripIdsForCleanCode(resultEl.value);
+ await copyText(clean,'完成コードコピー完了','ok');
+};
+window.saveCleanResultFile=function(){
+ if(!resultEl.value.trim()){
+  setVerify('結果コードが空です。','ng');
+  return;
+ }
+ const clean=stripIdsForCleanCode(resultEl.value);
+ const filename=getSaveFileName();
+ downloadTextFile(filename,clean);
+ setVerify(['完成コードを保存しました','ファイル名: '+filename,'Androidでは通常、ダウンロードフォルダに保存されます。'],'ok');
+};
 window.useResultAsSource=function(){
  if(!resultEl.value.trim()){
   setVerify('結果コードが空です。','ng');
@@ -464,7 +536,7 @@ window.useResultAsSource=function(){
  sourceEl.value=resultEl.value;
  resultEl.value='';
  updateStats();
- setVerify('結果を元コードへ戻しました。次の修正に進めます。','ok');
+ setVerify(['結果を元コードへ戻しました。次の修正に進めます。','現在ファイル: '+(currentFileName||'未指定')],'ok');
 };
 async function copyText(text,msg,state){
  try{
@@ -489,23 +561,6 @@ window.pastePatch=async function(){
   setVerify(['検証NG','クリップボードから読み取れませんでした。','ブラウザの権限、またはローカルHTML実行状態を確認してください。'],'ng');
  }
 };
-window.findIdLine=function(){
- const id=findIdEl.value.trim().toUpperCase();
- if(!/^ID\d{6}$/.test(id)){
-  setVerify('ID形式が不正です。例: ID000001','ng');
-  return;
- }
- const lines=normalizeNewlines(sourceEl.value).split('\n');
- const idx=lines.findIndex(line=>line.startsWith(id+':'));
- if(idx<0){
-  setVerify('該当IDが見つかりません: '+id,'ng');
-  return;
- }
- const before=lines.slice(0,idx).join('\n').length;
- sourceEl.focus();
- sourceEl.setSelectionRange(before,before+lines[idx].length);
- setVerify(['ID検索OK',id+' は '+(idx+1)+' 行目です。',lines[idx]],'ok');
-};
 window.loadSourceFromFile=function(){fileInput.click()};
 fileInput.addEventListener('change',()=>{
  const file=fileInput.files&&fileInput.files[0];
@@ -513,13 +568,14 @@ fileInput.addEventListener('change',()=>{
  const reader=new FileReader();
  reader.onload=()=>{
   sourceEl.value=reader.result||'';
+  setCurrentFileName(file.name);
   updateStats();
-  setVerify('ファイル読込完了: '+file.name,'ok');
+  setVerify(['ファイル読込完了: '+file.name,'現在ファイル名を記憶しました。'],'ok');
  };
  reader.onerror=()=>setVerify('ファイル読込失敗','ng');
  reader.readAsText(file);
 });
-window.clearSource=function(){sourceEl.value='';updateStats();setVerify('元コードクリア完了','ok')};
+window.clearSource=function(){sourceEl.value='';currentFileName='';saveFileNameEl.value='';updateStats();setVerify('元コードクリア完了','ok')};
 window.clearPatch=function(){patchEl.value='';setVerify('パッチクリア完了','ok')};
 window.clearVerify=function(){verifyBoxEl.textContent=''};
 window.clearAll=function(){
@@ -528,6 +584,8 @@ window.clearAll=function(){
  patchEl.value='';
  resultEl.value='';
  verifyBoxEl.textContent='';
+ currentFileName='';
+ saveFileNameEl.value='';
  updateStats();
 };
 sourceEl.addEventListener('input',updateStats);

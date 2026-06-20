@@ -1,7 +1,7 @@
 {
-  "name": "PatchTool PWA v5",
+  "name": "PatchTool PWA v5.4",
   "short_name": "PatchTool v5",
-  "description": "固定ID方式でGPT用パッチを適用するPatchTool v5",
+  "description": "GPT受け渡し専用の固定ID方式PatchTool v5.4",
   "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",
