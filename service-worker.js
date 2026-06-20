@@ -1,4 +1,4 @@
-const CACHE_NAME = 'patchtool-pwa-v5-4';
+const CACHE_NAME = 'patchtool-pwa-v5-5';
 const ASSETS = ['./', './index.html', './manifest.json', './icons/icon-192.png', './icons/icon-512.png'];
 
 self.addEventListener('install', event => {

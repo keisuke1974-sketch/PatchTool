@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>PatchTool PWA v5.4</title>
+<title>PatchTool PWA v5.5</title>
 <style>
 :root{--bg:#111827;--panel:#1f2937;--panel2:#243244;--text:#f9fafb;--muted:#cbd5e1;--accent:#7c5eff;--border:#475569;--input:#020617}
 *{box-sizing:border-box}
@@ -38,8 +38,8 @@ button:active{transform:translateY(1px)}
 </head>
 <body>
 <header>
-<h1>PatchTool PWA v5.4</h1>
-<p>GPT受け渡し専用の固定ID方式パッチ適用ツール。IDは内部処理に限定し、完成コードのコピー・保存を中心にした整理版。</p>
+<h1>PatchTool PWA v5.5</h1>
+<p>GPT受け渡し専用の固定ID方式パッチ適用ツール。GPT貼付け用コピー時は結果欄を更新せず、適用後のみ完成コードを出力します。</p>
 </header>
 
 <main>
@@ -242,7 +242,6 @@ function ensureIdDocument(){
  const items=sourceLines.map((line,i)=>({id:padId(i+1),text:line,lineNo:i+1}));
  const output=serializeDocument(docId,'NONE',sourceLines.length,items);
  sourceEl.value=output;
- resultEl.value=output;
  updateStats();
  return parseDocument(output);
 }
@@ -289,7 +288,6 @@ window.assignIds=function(){
  const items=sourceLines.map((line,i)=>({id:padId(i+1),text:line,lineNo:i+1}));
  const output=serializeDocument(docId,'NONE',sourceLines.length,items);
  sourceEl.value=output;
- resultEl.value=output;
  updateStats();
  setVerify(['ID付与完了','DOC_ID: '+docId,'行ID: ID000001 - '+padId(sourceLines.length)],'ok');
 };
