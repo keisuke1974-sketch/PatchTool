@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>PatchTool PWA v2.0</title>
+<title>PatchTool PWA v4.0</title>
 <style>
 :root{--bg:#111827;--panel:#1f2937;--panel2:#243244;--text:#f9fafb;--muted:#cbd5e1;--accent:#7c5eff;--border:#475569;--input:#020617}
 *{box-sizing:border-box}
@@ -37,7 +37,7 @@ button:active{transform:translateY(1px)}
 </head>
 <body>
 <header>
-<h1>PatchTool PWA v2.0</h1>
+<h1>PatchTool PWA v4.0</h1>
 <p>元コードにパッチを適用する単体HTMLツール。行番号指定パッチ REPLACE_LINES / INSERT_BEFORE / INSERT_AFTER / DELETE_LINES に対応。旧SEARCH/REPLACE形式も使用可能。</p>
 </header>
 
@@ -49,6 +49,7 @@ button:active{transform:translateY(1px)}
 <div class="buttons">
 <button class="secondary" onclick="loadSourceFromFile()">ファイル読込</button>
 <button class="secondary" onclick="copyNumberedSource()">行番号付きコピー</button>
+<button class="secondary" onclick="copyGptSource()">GPT貼付け用コピー</button>
 <button class="danger" onclick="clearSource()">元コードクリア</button>
 <button class="danger" onclick="clearAll()">全クリア</button>
 <input id="fileInput" type="file" style="display:none" accept=".js,.html,.txt,.css,.json,.user.js">
@@ -517,6 +518,34 @@ window.copyNumberedSource=async function(){
  const width=String(lines.length).length;
  const numbered=lines.map((line,i)=>String(i+1).padStart(width,' ')+': '+line).join('\n');
  await copyText(numbered,'行番号付きコピー完了','ok');
+};
+
+window.copyGptSource=async function(){
+ const lines=normalizeNewlines(sourceEl.value).split('\n');
+ const width=String(lines.length).length;
+ const numbered=lines.map((line,i)=>String(i+1).padStart(width,' ')+': '+line).join('\n');
+ const text=[
+  '【PatchTool用指示】',
+  '',
+  'このソースはPatchToolで作成した行番号付きコードです。',
+  '修正時はフルソースを書き換えず、PatchTool形式のパッチだけを返してください。',
+  '',
+  '使用可能コマンド:',
+  'REPLACE_LINES 開始行 終了行',
+  'INSERT_BEFORE 行番号',
+  'INSERT_AFTER 行番号',
+  'DELETE_LINES 開始行 終了行',
+  '',
+  '各コマンドの本文は END で終了してください。',
+  '修正箇所のみ返してください。フルソースは不要です。',
+  '',
+  '----- ソース開始 -----',
+  '',
+  numbered,
+  '',
+  '----- ソース終了 -----'
+ ].join('\n');
+ await copyText(text,'GPT貼付け用コピー完了','ok');
 };
 
 async function copyText(text,msg,state){
