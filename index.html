@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>PatchTool PWA v5.5</title>
+<title>PatchTool PWA v5.6</title>
 <style>
 :root{--bg:#111827;--panel:#1f2937;--panel2:#243244;--text:#f9fafb;--muted:#cbd5e1;--accent:#7c5eff;--border:#475569;--input:#020617}
 *{box-sizing:border-box}
@@ -38,8 +38,8 @@ button:active{transform:translateY(1px)}
 </head>
 <body>
 <header>
-<h1>PatchTool PWA v5.5</h1>
-<p>GPT受け渡し専用の固定ID方式パッチ適用ツール。GPT貼付け用コピー時は結果欄を更新せず、適用後のみ完成コードを出力します。</p>
+<h1>PatchTool PWA v5.6</h1>
+<p>GPT受け渡し専用の固定ID方式パッチ適用ツール。v5.6ではコードブロック貼付けと特殊文字保持を強化しています。</p>
 </header>
 
 <main>
@@ -65,7 +65,7 @@ button:active{transform:translateY(1px)}
 
 <section>
 <h2>2. パッチ</h2>
-<p class="hint">GPTから受け取ったID指定パッチを貼ります。先頭の PATCH_TARGET と現在DOC_IDが一致しない場合は適用を止めます。</p>
+<p class="hint">GPTから受け取ったID指定パッチを貼ります。コードブロックごと貼っても処理できます。PATCH_TARGET と現在DOC_IDが一致しない場合は適用を止めます。</p>
 <textarea id="patch" spellcheck="false" placeholder="PATCH_TARGET PT-20260620-123456-ABC123
 
 REPLACE_ID ID000001
@@ -299,7 +299,7 @@ function parsePatch(patchText){
  let i=0;
  while(i<lines.length){
   const header=lines[i].trim();
-  if(!header||header.startsWith('#')||header.startsWith('//')){i++;continue;}
+  if(!header||header.startsWith('#')||header.startsWith('//')||header.startsWith('```')){i++;continue;}
   let m=header.match(/^PATCH_TARGET\s+(PT-[A-Za-z0-9-]+)$/);
   if(m){target=m[1];i++;continue;}
   m=header.match(/^(REPLACE_ID|INSERT_BEFORE_ID|INSERT_AFTER_ID|DELETE_ID)\s+(ID\d{6})$/);
@@ -314,7 +314,7 @@ function parsePatch(patchText){
   }
   if(i>=lines.length)throw new Error(type+' '+id+' の END が見つかりません。');
   i++;
-  blocks.push({type,id,content:stripOneNewline(body.join('\n'))});
+blocks.push({type,id,content:body.join('\n')});
  }
  if(!target)throw new Error('PATCH_TARGET がありません。');
  if(blocks.length===0)throw new Error('有効なIDパッチがありません。');
@@ -484,7 +484,11 @@ window.copyGptSource=async function(){
   '重要:',
   'フルソースは禁止です。',
   '説明文やコード解説は禁止です。',
-  '回答はPatchTool v5形式のパッチのみで返してください。',
+  '回答はPatchTool v5.6形式のパッチのみで返してください。',
+  'パッチ全体を1つのコードブロック内に入れて返してください。',
+  'コードブロック外に説明文を書かないでください。',
+  'PatchToolは ``` で始まる行を無視できます。',
+  'バックスラッシュ、正規表現、\\n、\\t、\\/ などの特殊文字を絶対に省略しないでください。',
   'ID文字列を本文内で勝手に変更・削除・新規作成しないでください。',
   '修正箇所以外は変更しないでください。',
   '既存機能を削除しないでください。',
